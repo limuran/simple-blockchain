@@ -1,4 +1,4 @@
-// 简化区块链实现
+// 简化区块链实现 - 带手续费版本
 const crypto = require('crypto');
 
 // 1. 区块类
@@ -30,23 +30,30 @@ class Block {
     }
 }
 
-// 2. 交易类
+// 2. 交易类 - 添加手续费
 class Transaction {
-    constructor(fromAddress, toAddress, amount) {
+    constructor(fromAddress, toAddress, amount, gasPrice = 1) {
         this.fromAddress = fromAddress;
         this.toAddress = toAddress;
         this.amount = amount;
+        this.gasPrice = gasPrice; // 手续费
         this.timestamp = Date.now();
+    }
+
+    // 计算总费用（转账金额 + 手续费）
+    getTotalCost() {
+        return this.amount + this.gasPrice;
     }
 }
 
-// 3. 区块链类
+// 3. 区块链类 - 添加手续费处理
 class SimpleBlockchain {
     constructor() {
         this.chain = [this.createGenesisBlock()];
         this.difficulty = 2; // 挖矿难度
         this.pendingTransactions = [];
         this.miningReward = 100; // 挖矿奖励
+        this.minimumGasPrice = 1; // 最低手续费
     }
 
     // 创世区块
@@ -59,10 +66,17 @@ class SimpleBlockchain {
         return this.chain[this.chain.length - 1];
     }
 
-    // 挖矿 - 处理待处理交易
+    // 挖矿 - 处理待处理交易并收取手续费
     minePendingTransactions(miningRewardAddress) {
-        // 添加挖矿奖励交易
-        const rewardTransaction = new Transaction(null, miningRewardAddress, this.miningReward);
+        // 计算总手续费收入
+        let totalGasFees = 0;
+        for (const transaction of this.pendingTransactions) {
+            totalGasFees += transaction.gasPrice;
+        }
+
+        // 添加挖矿奖励交易（基础奖励 + 手续费）
+        const totalReward = this.miningReward + totalGasFees;
+        const rewardTransaction = new Transaction(null, miningRewardAddress, totalReward, 0);
         this.pendingTransactions.push(rewardTransaction);
 
         // 创建新区块
@@ -76,19 +90,27 @@ class SimpleBlockchain {
         block.mineBlock(this.difficulty);
 
         console.log('区块挖矿成功!');
+        console.log(`矿工获得奖励: ${this.miningReward} + 手续费: ${totalGasFees} = 总计: ${totalReward}`);
         this.chain.push(block);
 
         // 清空待处理交易
         this.pendingTransactions = [];
     }
 
-    // 创建交易
+    // 创建交易 - 验证余额包含手续费
     createTransaction(transaction) {
+        // 验证手续费
+        if (transaction.gasPrice < this.minimumGasPrice) {
+            throw new Error(`手续费不足! 最低要求: ${this.minimumGasPrice}`);
+        }
+
         // 简单验证
         if (transaction.fromAddress !== null) {
             const balance = this.getBalance(transaction.fromAddress);
-            if (balance < transaction.amount) {
-                throw new Error('余额不足!');
+            const totalCost = transaction.getTotalCost();
+            
+            if (balance < totalCost) {
+                throw new Error(`余额不足! 需要: ${totalCost} (${transaction.amount} + ${transaction.gasPrice} 手续费), 当前余额: ${balance}`);
             }
         }
         
@@ -102,7 +124,11 @@ class SimpleBlockchain {
         for (const block of this.chain) {
             for (const trans of block.transactions) {
                 if (trans.fromAddress === address) {
+                    // 扣除转账金额和手续费
                     balance -= trans.amount;
+                    if (trans.gasPrice > 0) {
+                        balance -= trans.gasPrice;
+                    }
                 }
                 if (trans.toAddress === address) {
                     balance += trans.amount;
@@ -111,6 +137,49 @@ class SimpleBlockchain {
         }
 
         return balance;
+    }
+
+    // 获取地址的交易历史
+    getTransactionHistory(address) {
+        let transactions = [];
+
+        for (const block of this.chain) {
+            for (const trans of block.transactions) {
+                if (trans.fromAddress === address || trans.toAddress === address) {
+                    transactions.push({
+                        ...trans,
+                        blockTimestamp: block.timestamp,
+                        blockHash: block.hash
+                    });
+                }
+            }
+        }
+
+        return transactions;
+    }
+
+    // 获取网络统计信息
+    getNetworkStats() {
+        let totalTransactions = 0;
+        let totalGasFees = 0;
+        let totalVolume = 0;
+
+        for (const block of this.chain) {
+            for (const trans of block.transactions) {
+                if (trans.fromAddress !== null) { // 排除挖矿奖励
+                    totalTransactions++;
+                    totalGasFees += trans.gasPrice || 0;
+                    totalVolume += trans.amount;
+                }
+            }
+        }
+
+        return {
+            totalTransactions,
+            totalGasFees,
+            totalVolume,
+            averageGasPrice: totalTransactions > 0 ? totalGasFees / totalTransactions : 0
+        };
     }
 
     // 验证区块链
@@ -133,11 +202,16 @@ class SimpleBlockchain {
 
     // 获取区块链信息
     getBlockchainInfo() {
+        const networkStats = this.getNetworkStats();
+        
         return {
             height: this.chain.length,
             difficulty: this.difficulty,
             pendingTransactions: this.pendingTransactions.length,
-            isValid: this.isChainValid()
+            isValid: this.isChainValid(),
+            minimumGasPrice: this.minimumGasPrice,
+            miningReward: this.miningReward,
+            networkStats: networkStats
         };
     }
 
@@ -168,7 +242,7 @@ class Wallet {
     }
 }
 
-// 5. 简单的区块链浏览器服务
+// 5. 简单的区块链浏览器服务 - 添加手续费支持
 const express = require('express');
 const app = express();
 app.use(express.json());
@@ -200,34 +274,68 @@ app.get('/api/user/:userId', (req, res) => {
         return res.status(404).json({ error: '用户不存在' });
     }
     
+    const balance = myCoin.getBalance(wallet.address);
+    const history = myCoin.getTransactionHistory(wallet.address);
+    
     res.json({
         userId: req.params.userId,
         address: wallet.address,
-        balance: myCoin.getBalance(wallet.address)
+        balance: balance,
+        transactionHistory: history
     });
 });
 
-// 创建交易
+// 创建交易 - 支持自定义手续费
 app.post('/api/transaction', (req, res) => {
     try {
-        const { fromUserId, toAddress, amount } = req.body;
+        const { fromUserId, toAddress, amount, gasPrice } = req.body;
         
         const fromWallet = wallets.get(fromUserId);
         if (!fromWallet) {
             return res.status(404).json({ error: '发送方用户不存在' });
         }
 
-        const transaction = new Transaction(fromWallet.address, toAddress, amount);
+        // 使用提供的手续费或默认值
+        const finalGasPrice = gasPrice || myCoin.minimumGasPrice;
+        
+        const transaction = new Transaction(fromWallet.address, toAddress, amount, finalGasPrice);
         myCoin.createTransaction(transaction);
         
         res.json({
             success: true,
             message: '交易创建成功，等待矿工确认',
-            transaction: transaction
+            transaction: {
+                from: fromWallet.address,
+                to: toAddress,
+                amount: amount,
+                gasPrice: finalGasPrice,
+                totalCost: transaction.getTotalCost()
+            }
         });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
+});
+
+// 估算交易费用
+app.post('/api/estimate-gas', (req, res) => {
+    const { fromUserId, amount } = req.body;
+    
+    const fromWallet = wallets.get(fromUserId);
+    if (!fromWallet) {
+        return res.status(404).json({ error: '用户不存在' });
+    }
+
+    const balance = myCoin.getBalance(fromWallet.address);
+    const networkStats = myCoin.getNetworkStats();
+    
+    res.json({
+        minimumGasPrice: myCoin.minimumGasPrice,
+        recommendedGasPrice: Math.max(myCoin.minimumGasPrice, Math.ceil(networkStats.averageGasPrice)),
+        userBalance: balance,
+        maxTransferAmount: Math.max(0, balance - myCoin.minimumGasPrice),
+        estimatedTotalCost: amount + myCoin.minimumGasPrice
+    });
 });
 
 // 挖矿
@@ -240,12 +348,20 @@ app.post('/api/mine', (req, res) => {
     }
 
     try {
+        // 计算挖矿前的手续费总额
+        let totalGasFees = 0;
+        for (const tx of myCoin.pendingTransactions) {
+            totalGasFees += tx.gasPrice;
+        }
+
         myCoin.minePendingTransactions(minerWallet.address);
         
         res.json({
             success: true,
             message: '挖矿成功!',
             reward: myCoin.miningReward,
+            gasFees: totalGasFees,
+            totalEarned: myCoin.miningReward + totalGasFees,
             newBalance: myCoin.getBalance(minerWallet.address)
         });
     } catch (error) {
@@ -256,6 +372,11 @@ app.post('/api/mine', (req, res) => {
 // 获取区块链信息
 app.get('/api/blockchain/info', (req, res) => {
     res.json(myCoin.getBlockchainInfo());
+});
+
+// 获取网络统计
+app.get('/api/network/stats', (req, res) => {
+    res.json(myCoin.getNetworkStats());
 });
 
 // 获取指定区块
@@ -281,9 +402,30 @@ app.get('/api/blocks', (req, res) => {
 // 获取地址余额
 app.get('/api/balance/:address', (req, res) => {
     const balance = myCoin.getBalance(req.params.address);
+    const history = myCoin.getTransactionHistory(req.params.address);
+    
     res.json({
         address: req.params.address,
-        balance: balance
+        balance: balance,
+        transactionCount: history.length
+    });
+});
+
+// 获取待处理交易池信息
+app.get('/api/mempool', (req, res) => {
+    const pendingTxs = myCoin.pendingTransactions.map(tx => ({
+        from: tx.fromAddress,
+        to: tx.toAddress,
+        amount: tx.amount,
+        gasPrice: tx.gasPrice,
+        totalCost: tx.getTotalCost(),
+        timestamp: tx.timestamp
+    }));
+
+    res.json({
+        pendingTransactions: pendingTxs,
+        count: pendingTxs.length,
+        totalGasFees: pendingTxs.reduce((sum, tx) => sum + tx.gasPrice, 0)
     });
 });
 
@@ -298,9 +440,12 @@ app.listen(PORT, () => {
     console.log('API接口:');
     console.log('- POST /api/user/create - 创建用户');
     console.log('- GET /api/user/:userId - 获取用户信息');
-    console.log('- POST /api/transaction - 创建交易');
+    console.log('- POST /api/transaction - 创建交易(支持手续费)');
+    console.log('- POST /api/estimate-gas - 估算交易费用');
     console.log('- POST /api/mine - 挖矿');
     console.log('- GET /api/blockchain/info - 区块链信息');
+    console.log('- GET /api/network/stats - 网络统计');
+    console.log('- GET /api/mempool - 待处理交易池');
     console.log('- GET /api/block/:height - 获取指定区块');
     console.log('- GET /api/blocks - 获取所有区块');
     console.log('- GET /api/balance/:address - 获取地址余额');
