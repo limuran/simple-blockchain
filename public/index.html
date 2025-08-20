@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>简单区块链浏览器</title>
+    <title>简单区块链浏览器 - 支持Gas费</title>
     <style>
         * {
             margin: 0;
@@ -19,7 +19,7 @@
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 20px;
         }
@@ -65,10 +65,14 @@
             display: flex;
             justify-content: space-between;
             margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
         }
 
         .stat-item {
             text-align: center;
+            flex: 1;
+            min-width: 80px;
         }
 
         .stat-value {
@@ -93,12 +97,21 @@
             color: #4a5568;
         }
 
-        .form-group input {
+        .form-group input, .form-group select {
             width: 100%;
             padding: 10px;
             border: 1px solid #e2e8f0;
             border-radius: 5px;
             font-size: 14px;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        .form-row .form-group {
+            flex: 1;
         }
 
         .btn {
@@ -124,6 +137,11 @@
             transform: none;
         }
 
+        .btn-secondary {
+            background: linear-gradient(135deg, #68d391, #48bb78);
+            margin-bottom: 10px;
+        }
+
         .result {
             margin-top: 15px;
             padding: 10px;
@@ -141,6 +159,21 @@
             background: #fed7d7;
             color: #742a2a;
             border: 1px solid #fc8181;
+        }
+
+        .info {
+            background: #bee3f8;
+            color: #2b6cb0;
+            border: 1px solid #90cdf4;
+        }
+
+        .gas-estimation {
+            background: #faf089;
+            color: #744210;
+            border: 1px solid #ecc94b;
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
         }
 
         .block-list {
@@ -193,10 +226,19 @@
             font-size: 12px;
         }
 
+        .gas-info {
+            color: #e53e3e;
+            font-weight: bold;
+        }
+
         .loading {
             text-align: center;
             color: #718096;
             font-style: italic;
+        }
+
+        .mempool-card {
+            grid-column: span 2;
         }
 
         @media (max-width: 768px) {
@@ -208,6 +250,14 @@
                 flex-direction: column;
                 gap: 10px;
             }
+            
+            .form-row {
+                flex-direction: column;
+            }
+            
+            .mempool-card {
+                grid-column: span 1;
+            }
         }
     </style>
 </head>
@@ -215,7 +265,7 @@
     <div class="container">
         <div class="header">
             <h1>🔗 简单区块链浏览器</h1>
-            <p>查看区块链状态、创建用户、进行交易和挖矿</p>
+            <p>支持Gas费的区块链 - 查看状态、创建用户、进行交易和挖矿</p>
         </div>
 
         <div class="dashboard">
@@ -235,8 +285,31 @@
                         <div class="stat-value" id="pendingTx">0</div>
                         <div class="stat-label">待处理交易</div>
                     </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="minGasPrice">0</div>
+                        <div class="stat-label">最低Gas费</div>
+                    </div>
                 </div>
                 <button class="btn" onclick="refreshBlockchainInfo()">🔄 刷新状态</button>
+            </div>
+
+            <!-- 网络统计 -->
+            <div class="card">
+                <h3>📈 网络统计</h3>
+                <div class="stats">
+                    <div class="stat-item">
+                        <div class="stat-value" id="totalTx">0</div>
+                        <div class="stat-label">总交易数</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="totalGas">0</div>
+                        <div class="stat-label">总Gas费</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="avgGas">0</div>
+                        <div class="stat-label">平均Gas费</div>
+                    </div>
+                </div>
             </div>
 
             <!-- 创建用户 -->
@@ -257,6 +330,21 @@
                 <div id="balanceResult" class="result" style="display: none;"></div>
             </div>
 
+            <!-- Gas费估算 -->
+            <div class="card">
+                <h3>⛽ Gas费估算</h3>
+                <div class="form-group">
+                    <label>用户ID:</label>
+                    <input type="text" id="estimateUserId" placeholder="输入用户ID">
+                </div>
+                <div class="form-group">
+                    <label>转账金额:</label>
+                    <input type="number" id="estimateAmount" placeholder="输入转账金额">
+                </div>
+                <button class="btn btn-secondary" onclick="estimateGas()">📊 估算费用</button>
+                <div id="gasEstimation" class="gas-estimation" style="display: none;"></div>
+            </div>
+
             <!-- 创建交易 -->
             <div class="card">
                 <h3>💸 创建交易</h3>
@@ -268,9 +356,15 @@
                     <label>接收方地址:</label>
                     <input type="text" id="toAddress" placeholder="输入接收方地址">
                 </div>
-                <div class="form-group">
-                    <label>金额:</label>
-                    <input type="number" id="amount" placeholder="输入转账金额">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>转账金额:</label>
+                        <input type="number" id="amount" placeholder="输入转账金额">
+                    </div>
+                    <div class="form-group">
+                        <label>Gas费:</label>
+                        <input type="number" id="gasPrice" placeholder="手续费" min="1">
+                    </div>
                 </div>
                 <button class="btn" onclick="createTransaction()">📤 创建交易</button>
                 <div id="transactionResult" class="result" style="display: none;"></div>
@@ -297,6 +391,23 @@
                 <button class="btn" onclick="getUserInfo()">🔍 查询用户</button>
                 <div id="userInfoResult" class="result" style="display: none;"></div>
             </div>
+
+            <!-- 交易池状态 -->
+            <div class="card mempool-card">
+                <h3>🏊 交易池状态</h3>
+                <div class="stats">
+                    <div class="stat-item">
+                        <div class="stat-value" id="mempoolCount">0</div>
+                        <div class="stat-label">待处理交易</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="mempoolGas">0</div>
+                        <div class="stat-label">总Gas费</div>
+                    </div>
+                </div>
+                <button class="btn" onclick="loadMempool()">🔄 刷新交易池</button>
+                <div id="mempoolList" style="margin-top: 15px;"></div>
+            </div>
         </div>
 
         <!-- 区块列表 -->
@@ -314,6 +425,7 @@
         window.onload = function() {
             refreshBlockchainInfo();
             loadBlocks();
+            loadMempool();
         };
 
         // 刷新区块链信息
@@ -325,6 +437,14 @@
                 document.getElementById('blockHeight').textContent = data.height;
                 document.getElementById('difficulty').textContent = data.difficulty;
                 document.getElementById('pendingTx').textContent = data.pendingTransactions;
+                document.getElementById('minGasPrice').textContent = data.minimumGasPrice;
+
+                // 更新网络统计
+                if (data.networkStats) {
+                    document.getElementById('totalTx').textContent = data.networkStats.totalTransactions;
+                    document.getElementById('totalGas').textContent = data.networkStats.totalGasFees;
+                    document.getElementById('avgGas').textContent = data.networkStats.averageGasPrice.toFixed(2);
+                }
             } catch (error) {
                 console.error('获取区块链信息失败:', error);
             }
@@ -376,11 +496,56 @@
                 resultDiv.innerHTML = `
                     <strong>余额查询结果:</strong><br>
                     地址: ${data.address}<br>
-                    余额: ${data.balance} 代币
+                    余额: ${data.balance} 代币<br>
+                    交易次数: ${data.transactionCount}
                 `;
                 resultDiv.style.display = 'block';
             } catch (error) {
                 showError('balanceResult', '查询余额失败: ' + error.message);
+            }
+        }
+
+        // Gas费估算
+        async function estimateGas() {
+            const userId = document.getElementById('estimateUserId').value;
+            const amount = parseFloat(document.getElementById('estimateAmount').value);
+
+            if (!userId || !amount) {
+                showError('gasEstimation', '请填写用户ID和转账金额');
+                document.getElementById('gasEstimation').style.display = 'block';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/api/estimate-gas`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        fromUserId: userId,
+                        amount: amount
+                    })
+                });
+                
+                const data = await response.json();
+                
+                const resultDiv = document.getElementById('gasEstimation');
+                resultDiv.innerHTML = `
+                    <strong>💰 Gas费估算:</strong><br>
+                    最低Gas费: ${data.minimumGasPrice}<br>
+                    推荐Gas费: ${data.recommendedGasPrice}<br>
+                    用户余额: ${data.userBalance}<br>
+                    最大转账额: ${data.maxTransferAmount}<br>
+                    预估总费用: ${data.estimatedTotalCost} (${amount} + ${data.minimumGasPrice})
+                `;
+                resultDiv.style.display = 'block';
+
+                // 自动填充推荐的Gas费
+                document.getElementById('gasPrice').value = data.recommendedGasPrice;
+            } catch (error) {
+                showError('gasEstimation', 'Gas费估算失败: ' + error.message);
+                document.getElementById('gasEstimation').style.display = 'block';
             }
         }
 
@@ -389,6 +554,7 @@
             const fromUserId = document.getElementById('fromUserId').value;
             const toAddress = document.getElementById('toAddress').value;
             const amount = parseFloat(document.getElementById('amount').value);
+            const gasPrice = parseFloat(document.getElementById('gasPrice').value);
 
             if (!fromUserId || !toAddress || !amount) {
                 showError('transactionResult', '请填写完整信息');
@@ -404,7 +570,8 @@
                     body: JSON.stringify({
                         fromUserId,
                         toAddress,
-                        amount
+                        amount,
+                        gasPrice: gasPrice || undefined
                     })
                 });
                 
@@ -416,9 +583,12 @@
                     resultDiv.innerHTML = `
                         <strong>交易创建成功!</strong><br>
                         ${data.message}<br>
-                        金额: ${amount} 代币
+                        转账金额: ${data.transaction.amount} 代币<br>
+                        Gas费: ${data.transaction.gasPrice} 代币<br>
+                        <span class="gas-info">总费用: ${data.transaction.totalCost} 代币</span>
                     `;
                     refreshBlockchainInfo(); // 刷新待处理交易数量
+                    loadMempool(); // 刷新交易池
                 } else {
                     resultDiv.className = 'result error';
                     resultDiv.textContent = data.error || '交易创建失败';
@@ -459,11 +629,14 @@
                     resultDiv.className = 'result success';
                     resultDiv.innerHTML = `
                         <strong>挖矿成功!</strong><br>
-                        奖励: ${data.reward} 代币<br>
+                        基础奖励: ${data.reward} 代币<br>
+                        Gas费收入: ${data.gasFees} 代币<br>
+                        <span class="gas-info">总收入: ${data.totalEarned} 代币</span><br>
                         新余额: ${data.newBalance} 代币
                     `;
                     refreshBlockchainInfo();
                     loadBlocks(); // 刷新区块列表
+                    loadMempool(); // 刷新交易池
                 } else {
                     resultDiv.className = 'result error';
                     resultDiv.textContent = data.error || '挖矿失败';
@@ -496,7 +669,8 @@
                         <strong>用户信息:</strong><br>
                         用户ID: ${data.userId}<br>
                         地址: ${data.address}<br>
-                        余额: ${data.balance} 代币
+                        余额: ${data.balance} 代币<br>
+                        交易历史: ${data.transactionHistory.length} 笔交易
                     `;
                 } else {
                     resultDiv.className = 'result error';
@@ -505,6 +679,40 @@
                 resultDiv.style.display = 'block';
             } catch (error) {
                 showError('userInfoResult', '查询用户失败: ' + error.message);
+            }
+        }
+
+        // 加载交易池信息
+        async function loadMempool() {
+            try {
+                const response = await fetch(`${API_BASE}/api/mempool`);
+                const data = await response.json();
+                
+                document.getElementById('mempoolCount').textContent = data.count;
+                document.getElementById('mempoolGas').textContent = data.totalGasFees;
+
+                const mempoolList = document.getElementById('mempoolList');
+                if (data.pendingTransactions && data.pendingTransactions.length > 0) {
+                    mempoolList.innerHTML = `
+                        <div style="max-height: 200px; overflow-y: auto;">
+                            ${data.pendingTransactions.map(tx => `
+                                <div class="transaction">
+                                    ${tx.from ? `${tx.from.substring(0, 10)}...` : '系统'} 
+                                    → ${tx.to.substring(0, 10)}... 
+                                    <strong>${tx.amount}</strong> + 
+                                    <span class="gas-info">${tx.gasPrice} Gas</span> = 
+                                    <strong>${tx.totalCost}</strong>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                } else {
+                    mempoolList.innerHTML = '<div class="loading">交易池为空</div>';
+                }
+            } catch (error) {
+                document.getElementById('mempoolList').innerHTML = 
+                    '<div class="loading">加载交易池失败</div>';
+                console.error('加载交易池失败:', error);
             }
         }
 
@@ -540,6 +748,7 @@
                                         ${tx.fromAddress ? `${tx.fromAddress.substring(0, 10)}...` : '系统奖励'} 
                                         → ${tx.toAddress.substring(0, 10)}... 
                                         <strong>${tx.amount} 代币</strong>
+                                        ${tx.gasPrice > 0 ? `<span class="gas-info">(Gas: ${tx.gasPrice})</span>` : ''}
                                     </div>
                                 `).join('')}
                             </div>
@@ -567,6 +776,7 @@
         setInterval(() => {
             refreshBlockchainInfo();
             loadBlocks();
+            loadMempool();
         }, 10000); // 每10秒刷新一次
     </script>
 </body>
