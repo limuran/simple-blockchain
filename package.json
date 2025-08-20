@@ -1,17 +1,19 @@
 {
   "name": "simple-blockchain",
-  "version": "1.0.0",
-  "description": "一个简单的区块链实现，支持代币生产、用户创建、转账、挖矿和区块链浏览器",
+  "version": "1.1.0",
+  "description": "一个简单的区块链实现，支持Gas费、代币生产、用户创建、转账、挖矿和区块链浏览器",
   "main": "blockchain.js",
   "scripts": {
     "start": "node blockchain.js",
     "dev": "nodemon blockchain.js",
-    "test": "node test.js"
+    "test": "node test.js",
+    "test:gas": "node test-gas.js"
   },
   "keywords": [
     "blockchain",
     "cryptocurrency",
     "mining",
+    "gas-fees",
     "nodejs",
     "express"
   ],
